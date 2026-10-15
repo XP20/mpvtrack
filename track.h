@@ -16,8 +16,11 @@ typedef struct {
 // Gets index of track to resume playing
 size_t get_iplay(const da_t *tracks);
 
-// Gets tracks in subtree
-void get_tracks(da_t *tracks);
+// Parse string and write it to *tp
+void parse_track(track_t *tp, char *str);
+
+// Discover tracks in subtree
+void discover_tracks(da_t *tracks);
 
 // Writes track to stream
 void put_track(track_t track, FILE *fp);

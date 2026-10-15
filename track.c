@@ -1,4 +1,5 @@
 #define _XOPEN_SOURCE 500
+#define _POSIX_C_SOURCE 200809L
 #include "track.h"
 #include <ftw.h>
 #include <string.h>
@@ -49,7 +50,13 @@ size_t get_iplay(const da_t *tracks) {
     return idx;
 }
 
-void get_tracks(da_t *tracks) {
+void parse_track(track_t *tp, char *str) {
+    char *delim = strrchr(str, DELIM);
+    tp->path = strndup(str, delim - str);
+    tp->ppseek = atof(delim+1);
+}
+
+void discover_tracks(da_t *tracks) {
     m_tracks = tracks;
     if (nftw(".", visit, 16, FTW_PHYS))
         THROW("nftw");

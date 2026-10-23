@@ -6,11 +6,13 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <libgen.h>
+#include <fcntl.h>
 #include <sys/wait.h>
 #include <sys/inotify.h>
 #include <sys/poll.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/stat.h>
 #include "track.h"
 #include "utils.h"
 #include "json.h"
@@ -42,12 +44,11 @@ mpv_t *mpv_prep(da_t *tracks, size_t iplay) {
     if (mkdtemp(sdir) == 0) THROW("mkdtemp");
 
     // Format arg strings
-    char osock[64], olist[32], oseek[32];
+    char osock[64], olist[32];
     snprintf(mpv->spath, sizeof(mpv->spath), "%s/mpv.sock", sdir);
     snprintf(osock, sizeof(osock), "--input-ipc-server=%s", mpv->spath);
     snprintf(olist, sizeof(olist), "--playlist-start=%lu", iplay);
-    const track_t track = ((track_t*)tracks->data)[iplay];
-    snprintf(oseek, sizeof(oseek), "--start=%f%%", track.ppseek);
+    mpv->starts = malloc((tracks->len - iplay) * 32);
 
     // Populate args array
     mpv->args = da_init(sizeof(const char*));
@@ -55,9 +56,20 @@ mpv_t *mpv_prep(da_t *tracks, size_t iplay) {
     *(const char**)da_add(mpv->args) = "--no-terminal";
     *(const char**)da_add(mpv->args) = osock;
     *(const char**)da_add(mpv->args) = olist;
-    *(const char**)da_add(mpv->args) = oseek;
-    for (size_t i = 0; i < tracks->len; i++)
-        *(const char**)da_add(mpv->args) = ((track_t*)tracks->data)[i].path;
+    for (size_t i = 0; i < tracks->len; i++) {
+        const track_t t = ((track_t*)tracks->data)[i];
+        if (i >= iplay) {
+            char *s = mpv->starts + (i - iplay) * 32;
+            snprintf(s, 32, "--start=%f%%", t.ppseek);
+            *(const char**)da_add(mpv->args) = "--{";
+            *(const char**)da_add(mpv->args) = s;
+            *(const char**)da_add(mpv->args) = t.path;
+            *(const char**)da_add(mpv->args) = "--}";
+
+        } else {
+            *(const char**)da_add(mpv->args) = t.path;
+        }
+    }
     *(const char**)da_add(mpv->args) = NULL;
 
     // Install SIGCHLD handler
@@ -119,16 +131,32 @@ void mpv_cmd(mpv_t *mpv, const char *cmd) {
 void mpv_loop(mpv_t *mpv, char *buf, size_t size,
               void (*cb)(mpv_ev_t ev, const json_t *msg)) {
     ssize_t n;
-    while ((n = read(mpv->sock, buf, size-1)) > 0) {
-        buf[n] = '\0';
-        // TODO: handle multiple events sep \n in one buf read
-        const json_t *jev = json_parse(buf);
-        size_t iname = hm_geti(jev->val.obj, "event");
-        if (iname != HM_NONE) {
-            const json_t *jname = jev->val.obj[iname].val;
-            cb(mpv_strtoev(jname->val.str), jev);
+    size_t off = 0;
+    while ((n = read(mpv->sock, buf + off, size - 1 - off)) > 0) {
+        buf[off + n] = '\0';
+        char *line = buf + off;
+        for (char *next;; line = next) {
+            next = strchr(line, '\n');
+            if (next == NULL) // incomplete line
+                break;
+            *next++ = '\0';
+            if (*line == '\0')
+                continue;
+
+            const json_t *jev = json_parse(line);
+            if (jev->typ == JSON_OBJ && jev->val.obj) {
+                size_t i = hm_geti(jev->val.obj, "event");
+                if (i != HM_NONE) {
+                    const json_t *jname = jev->val.obj[i].val;
+                    cb(mpv_strtoev(jname->val.str), jev);
+                } else if (hm_geti(jev->val.obj, "request_id") != HM_NONE) {
+                    cb(MPV_GET_PROPERTY_REPLY, jev);
+                }
+            }
+            json_free(jev);
         }
-        json_free(jev);
+        off = strlen(line);
+        memmove(buf, buf + off, off);
     }
 }
 
@@ -148,5 +176,6 @@ void mpv_free(mpv_t *mpv) {
     unlink(mpv->spath);
     rmdir(dirname(mpv->spath));
     da_free(mpv->args);
+    free(mpv->starts);
     free(mpv);
 }

@@ -26,28 +26,56 @@
 // Scratch buffer
 char buf[BUF_SIZE];
 
+static ssize_t itrack = -1;
+static da_t   *tracks;
+static FILE   *fp;
+
 // Handle mpv events
 static void mpv_handle(mpv_ev_t ev, const json_t *msg) {
-    printf("%s: ", mpv_evtostr[ev]);
-    json_print(msg, stdout);
-    putc('\n', stdout);
+    if (ev == MPV_PROPERTY_CHANGE) {
+        if (itrack == -1)
+            return;
+        size_t i = hm_geti(msg->val.obj, "name");
+        if (i != HM_NONE && strcmp(msg->val.obj[i].val->val.str, "percent-pos"))
+            return;
+        puts("WRITING");
+
+        i = hm_geti(msg->val.obj, "data");
+        if (i == HM_NONE) return;
+        track_t tcurr = ((track_t*)tracks->data)[itrack];
+        tcurr.ppseek = msg->val.obj[i].val->val.num;
+        track_update(tcurr, fp);
+    } else if (ev == MPV_START_FILE) {
+        size_t i = hm_geti(msg->val.obj, "playlist_entry_id");
+        if (i != HM_NONE) {
+            const json_t *jen = msg->val.obj[i].val;
+            const int eidx = jen->val.num;
+            itrack = eidx - 1;
+        }
+    } else if (ev == MPV_END_FILE) {
+        itrack = -1;
+    }
 }
 
 int main(void) {
-    da_t *tracks = da_init(sizeof(track_t));
-    FILE *fp = fopen(FILENAME, "r+");
+    tracks = da_init(sizeof(track_t));
+    fp = fopen(FILENAME, "r+");
 
     // Read lines and parse tracks
-    if (fp) while (fgets(buf, BUF_SIZE, fp) != NULL)
-        parse_track((track_t*)da_add(tracks), buf);
+    if (fp) while (fgets(buf, BUF_SIZE, fp) != NULL) {
+        track_t *curr = (track_t*)da_add(tracks);
+        track_t *prev = (tracks->len > 1)
+                      ? &((track_t*)tracks->data)[tracks->len-2]
+                      : NULL;
+        track_parse(prev, curr, buf);
+    } else {
     // Create and populate progress file
-    else {
         fp = fopen(FILENAME, "w+");
         if (fp == NULL) THROW("fopen");
 
-        discover_tracks(tracks);
+        track_discover(tracks);
         for (size_t i = 0; i < tracks->len; i++)
-            put_track(((track_t*)tracks->data)[i], fp);
+            track_write(((track_t*)tracks->data)[i], fp);
         if (fflush(fp) == EOF) THROW("fflush");
     }
 
@@ -64,6 +92,7 @@ int main(void) {
         THROW("mpv_begin");
     else if (mpv_connect(mpv) == -1)
         THROW("connect");
+    itrack = iplay;
     mpv_cmd(mpv, "{\"command\":[\"observe_property\",1,\"percent-pos\"]}\n");
     mpv_loop(mpv, buf, BUF_SIZE, mpv_handle);
 

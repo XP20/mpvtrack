@@ -35,6 +35,7 @@ typedef struct {
     struct sockaddr_un sa; // mpv socket address
     pid_t pid;             // mpv subprocess pid
     da_t *args;            // mpv subprocess args
+    char *starts;          // file "--start=..." seek offsets
 } mpv_t;
 
 // Prepare mpv data

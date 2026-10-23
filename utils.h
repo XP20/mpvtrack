@@ -116,7 +116,7 @@ static void _hm_grow(void **p_hm, size_t esize) {
     hdr->hashes = malloc(ncap * (sizeof(uint64_t) + sizeof(size_t)));
     hdr->pos    = (size_t*)(hdr->hashes + ncap);
     hdr->cap    = ncap;
-    *p_hm = (char*)(hdr+1) + esize;
+    *p_hm = hdr + 1;
 
     for (size_t i = 0; i < ncap; i++)
         hdr->pos[i] = HM_NONE;

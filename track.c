@@ -6,7 +6,7 @@
 #include "utils.h"
 
 #define TRACK_EXTS ".mkv.mov.mp4"
-#define PP_FINISHED 99.5f
+#define PP_FINISHED 99.0f
 
 
 static da_t *m_tracks;
@@ -31,6 +31,7 @@ static int visit(const char *path, const struct stat *st,
         if (strstr(TRACK_EXTS, ext)) {
             track_t *track = da_add(m_tracks);
             track->ppseek = 0.0f;
+            track->ppoff  = strlen(path);
             if ((track->path = strdup(path)) == NULL)
                 return 1; // stop
         }
@@ -50,21 +51,29 @@ size_t get_iplay(const da_t *tracks) {
     return idx;
 }
 
-void parse_track(track_t *tp, char *str) {
-    char *delim = strrchr(str, DELIM);
-    tp->path = strndup(str, delim - str);
-    tp->ppseek = atof(delim+1);
+void track_parse(track_t *prev, track_t *curr, char *str) {
+    char *d = strrchr(str, DELIM);
+    curr->path   = strndup(str, d - str);
+    curr->ppseek = atof(d+1);
+    curr->ppoff  = prev ? prev->ppoff + 11 : 0;
+    curr->ppoff += (long)(d - str) + 1;
 }
 
-void discover_tracks(da_t *tracks) {
+void track_discover(da_t *tracks) {
     m_tracks = tracks;
     if (nftw(".", visit, 16, FTW_PHYS))
         THROW("nftw");
     qsort(tracks->data, tracks->len, tracks->esize, trackcmp);
 }
 
-void put_track(track_t track, FILE *fp) {
+void track_write(track_t track, FILE *fp) {
     fputs(track.path, fp);
     fputc(DELIM, fp);
-    fprintf(fp, "%f\n", track.ppseek);
+    fprintf(fp, "%010.6f\n", track.ppseek);
+}
+
+void track_update(track_t track, FILE *fp) {
+    fseek(fp, track.ppoff, SEEK_SET);
+    fprintf(fp, "%010.6f", track.ppseek);
+    fflush(fp);
 }

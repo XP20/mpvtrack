@@ -38,7 +38,6 @@ static void mpv_handle(mpv_ev_t ev, const json_t *msg) {
         size_t i = hm_geti(msg->val.obj, "name");
         if (i != HM_NONE && strcmp(msg->val.obj[i].val->val.str, "percent-pos"))
             return;
-        puts("WRITING");
 
         i = hm_geti(msg->val.obj, "data");
         if (i == HM_NONE) return;

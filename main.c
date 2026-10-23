@@ -27,20 +27,24 @@
 char buf[BUF_SIZE];
 
 static ssize_t m_itrack = -1;
+static size_t  m_tready = 0;
 static da_t   *m_tracks;
 static FILE   *m_fp;
 
 // Handle mpv events
 static void mpv_handle(mpv_ev_t ev, const json_t *msg) {
     if (ev == MPV_PROPERTY_CHANGE) {
-        if (m_itrack == -1)
+        if (!m_tready)
             return;
+
         size_t i = hm_geti(msg->val.obj, "name");
         if (i != HM_NONE && strcmp(msg->val.obj[i].val->val.str, "percent-pos"))
             return;
 
         i = hm_geti(msg->val.obj, "data");
-        if (i == HM_NONE) return;
+        if (i == HM_NONE)
+            return;
+
         track_t tcurr = ((track_t*)m_tracks->data)[m_itrack];
         tcurr.ppseek = msg->val.obj[i].val->val.num;
         track_update(tcurr, m_fp);
@@ -48,11 +52,20 @@ static void mpv_handle(mpv_ev_t ev, const json_t *msg) {
         size_t i = hm_geti(msg->val.obj, "playlist_entry_id");
         if (i != HM_NONE) {
             const json_t *jen = msg->val.obj[i].val;
-            const int eidx = jen->val.num;
-            m_itrack = eidx - 1;
+            const size_t eidx = jen->val.num - 1;
+
+            // Mark tracks played on advance
+            if (eidx > (size_t)m_itrack) {
+                track_t prev = ((track_t*)m_tracks->data)[m_itrack];
+                prev.ppseek = 100.0;
+                track_update(prev, m_fp);
+            }
+
+            m_itrack = eidx;
+            m_tready = 1;
         }
     } else if (ev == MPV_END_FILE) {
-        m_itrack = -1;
+        m_tready = 0;
     }
 }
 
@@ -92,6 +105,7 @@ int main(void) {
     else if (mpv_connect(mpv) == -1)
         THROW("connect");
     m_itrack = iplay;
+    m_tready = 1;
     mpv_cmd(mpv, "{\"command\":[\"observe_property\",1,\"percent-pos\"]}\n");
     mpv_loop(mpv, buf, BUF_SIZE, mpv_handle);
 

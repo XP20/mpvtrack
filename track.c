@@ -29,10 +29,10 @@ static int visit(const char *path, const struct stat *st,
 
         // Add video tracks
         if (strstr(TRACK_EXTS, ext)) {
-            track_t *track = da_add(m_tracks);
-            track->ppseek = 0.0f;
-            track->ppoff  = strlen(path);
-            if ((track->path = strdup(path)) == NULL)
+            track_t *curr = da_add(m_tracks);
+            curr->ppseek = 0.0f;
+            curr->ppoff = strlen(path) + 1;
+            if ((curr->path = strdup(path)) == NULL)
                 return 1; // stop
         }
     }
@@ -64,6 +64,11 @@ void track_discover(da_t *tracks) {
     if (nftw(".", visit, 16, FTW_PHYS))
         THROW("nftw");
     qsort(tracks->data, tracks->len, tracks->esize, trackcmp);
+    for (size_t i = 1; i < tracks->len; i++) {
+        track_t *prev = &((track_t*)tracks->data)[i-1];
+        track_t *curr = &((track_t*)tracks->data)[i];
+        curr->ppoff += prev->ppoff + 11;
+    }
 }
 
 void track_write(track_t track, FILE *fp) {

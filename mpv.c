@@ -48,26 +48,25 @@ mpv_t *mpv_prep(da_t *tracks, size_t iplay) {
     snprintf(mpv->spath, sizeof(mpv->spath), "%s/mpv.sock", sdir);
     snprintf(osock, sizeof(osock), "--input-ipc-server=%s", mpv->spath);
     snprintf(olist, sizeof(olist), "--playlist-start=%lu", iplay);
-    mpv->starts = malloc((tracks->len - iplay) * 32);
 
     // Populate args array
     mpv->args = da_init(sizeof(const char*));
-    *(const char**)da_add(mpv->args) = "mpv";
-    *(const char**)da_add(mpv->args) = "--no-terminal";
-    *(const char**)da_add(mpv->args) = osock;
-    *(const char**)da_add(mpv->args) = olist;
+    *(const char**)da_add(mpv->args) = strdup("mpv");
+    *(const char**)da_add(mpv->args) = strdup("--no-terminal");
+    *(const char**)da_add(mpv->args) = strdup(osock);
+    *(const char**)da_add(mpv->args) = strdup(olist);
     for (size_t i = 0; i < tracks->len; i++) {
         const track_t t = ((track_t*)tracks->data)[i];
         if (i >= iplay) {
-            char *s = mpv->starts + (i - iplay) * 32;
-            snprintf(s, 32, "--start=%f%%", t.ppseek);
-            *(const char**)da_add(mpv->args) = "--{";
+            char *s = malloc(32);
+            snprintf(s, 31, "--start=%f%%", t.ppseek);
+            *(const char**)da_add(mpv->args) = strdup("--{");
             *(const char**)da_add(mpv->args) = s;
-            *(const char**)da_add(mpv->args) = t.path;
-            *(const char**)da_add(mpv->args) = "--}";
+            *(const char**)da_add(mpv->args) = strdup(t.path);
+            *(const char**)da_add(mpv->args) = strdup("--}");
 
         } else {
-            *(const char**)da_add(mpv->args) = t.path;
+            *(const char**)da_add(mpv->args) = strdup(t.path);
         }
     }
     *(const char**)da_add(mpv->args) = NULL;
@@ -175,7 +174,8 @@ void mpv_free(mpv_t *mpv) {
     close(mpv->sock);
     unlink(mpv->spath);
     rmdir(dirname(mpv->spath));
+    for (size_t i = 0; i < mpv->args->len; i++)
+        free(((char**)mpv->args->data)[i]);
     da_free(mpv->args);
-    free(mpv->starts);
     free(mpv);
 }
